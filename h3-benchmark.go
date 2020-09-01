@@ -9,7 +9,6 @@ package main
 // #include <stdlib.h>
 // #include "h3wrapper.h"
 import "C"
-
 import (
 	"crypto/md5"
 	"flag"
@@ -21,6 +20,7 @@ import (
 	"os"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 // Global variables
@@ -30,6 +30,9 @@ var object_size uint64
 var object_data []byte
 var running_threads, upload_count, download_count, delete_count, upload_slowdown_count, download_slowdown_count, delete_slowdown_count int32
 var endtime, upload_finish, download_finish, delete_finish time.Time
+
+var handle C.H3_Handle
+var bucket_str *C.char
 
 func logit(msg string) {
 	fmt.Println(msg)
@@ -41,14 +44,14 @@ func logit(msg string) {
 }
 
 func createBucket(ignore_errors bool) {
-	status := C.h3lib_create_bucket(handle, bucketName)
+	status := C.h3lib_create_bucket(handle, bucket_str)
 	if status != C.H3_SUCCESS && status != C.H3_EXISTS {
 		log.Fatalf("FATAL: Unable to create bucket %s (error: %d)", bucket, status)
 	}
 }
 
 func deleteAllObjects() {
-	status := C.h3lib_purge_bucket(handle, bucketName)
+	status := C.h3lib_purge_bucket(handle, bucket_str)
 	if status != C.H3_SUCCESS {
 		log.Fatalf("FATAL: Unable to create bucket %s (error: %d)", bucket, status)
 	}
@@ -62,7 +65,7 @@ func runUpload(thread_num int) {
 		objectName := C.CString(objName)
 		defer C.free(unsafe.Pointer(objectName))
 
-		status := C.h3lib_write_object(handle, bucketName, objectName, unsafe.Pointer(&object_data[0]), C.ulong(object_size), C.ulong(0))
+		status := C.h3lib_write_object(handle, bucket_str, objectName, unsafe.Pointer(&object_data[0]), C.ulong(object_size), C.ulong(0))
 		if status != C.H3_SUCCESS{
 			log.Fatalf("FATAL: Error uploading object %s (error: %d)", objName, status)
 		} else {
@@ -84,7 +87,7 @@ func runDownload(thread_num int) {
 		objectName := C.CString(objName)
 		defer C.free(unsafe.Pointer(objectName))
 
-		status := C.h3lib_read_dummy_object(handle, bucketName, objectName)
+		status := C.h3lib_read_dummy_object(handle, bucket_str, objectName)
 		if status != C.H3_SUCCESS{
 			log.Fatalf("FATAL: Error downloading object %s (error: %d)", objName, status)
 		} else {
@@ -108,7 +111,7 @@ func runDelete(thread_num int) {
 		objectName := C.CString(objName)
 		defer C.free(unsafe.Pointer(objectName))
 
-		status := C.h3lib_delete_object(handle, bucketName, objectName)
+		status := C.h3lib_delete_object(handle, bucket_str, objectName)
 		if status != C.H3_SUCCESS {
 			log.Fatalf("FATAL: Error deleting object %s (error: %d)", objName, status)
 		} else {
@@ -150,6 +153,17 @@ func main() {
 	// Echo the parameters
 	logit(fmt.Sprintf("Parameters: storage_uri=%s, bucket=%s, duration=%d, threads=%d, loops=%d, size=%s",
 		storage_uri, bucket, duration_secs, threads, loops, sizeArg))
+
+	storage_uri_str := C.CString(storage_uri)
+	defer C.free(unsafe.Pointer(storage_uri_str))
+	handle := C.H3_Init(storage_uri_str)
+	if handle == nil {
+		log.Fatal("Unable to initialize h3lib")
+	}
+	defer C.H3_Free(handle)
+
+	bucket_str = C.CString(bucket)
+	defer C.free(unsafe.Pointer(bucket_str))
 
 	// Initialize data for the bucket
 	object_data = make([]byte, object_size)

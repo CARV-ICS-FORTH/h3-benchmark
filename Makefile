@@ -7,4 +7,4 @@ all: h3wrapper h3-benchmark.go
 	go build
 
 clean:
-	rm -f h3wrapper.o benchmark
+	rm -f h3wrapper.o h3-benchmark
